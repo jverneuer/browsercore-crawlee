@@ -1,5 +1,6 @@
 /**
- * Fingerprint → profile resolution — pure mapping, impit-collapse semantics.
+ * Fingerprint → profile resolution — pure mapping, impit-collapse semantics
+ * with native safari support.
  */
 
 import { describe, expect, it } from "vitest";
@@ -11,16 +12,19 @@ describe("resolveProfileId", () => {
     it("maps the chrome family to chrome-140", () => {
         const chrome: SessionFingerprint = { browser: "chrome" };
         const edge: SessionFingerprint = { browser: "edge" };
-        const safari: SessionFingerprint = { browser: "safari" };
         expect(resolveProfileId("auto", chrome)).toBe(PROFILES["chrome-140"]);
-        // Chromium-based families collapse onto Chrome, like impit's fallback.
+        // Chromium-based `edge` collapses onto Chrome, like impit's fallback.
         expect(resolveProfileId("auto", edge)).toBe(PROFILES["chrome-140"]);
-        expect(resolveProfileId("auto", safari)).toBe(PROFILES["chrome-140"]);
     });
 
     it("maps the firefox family to firefox-128", () => {
         const firefox: SessionFingerprint = { browser: "firefox" };
         expect(resolveProfileId("auto", firefox)).toBe(PROFILES["firefox-128"]);
+    });
+
+    it("maps the safari family to its native safari-18 profile", () => {
+        const safari: SessionFingerprint = { browser: "safari" };
+        expect(resolveProfileId("auto", safari)).toBe(getProfile("safari-18").id);
     });
 
     it("defaults to chrome-140 when the session carries no fingerprint", () => {

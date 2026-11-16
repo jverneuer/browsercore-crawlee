@@ -19,8 +19,10 @@
  *   families onto Chrome too); a client-level explicit `profile` wins, and
  *   fingerprint-less requests default to `chrome-140`.
  * - `cookieJar` → not forwarded (Crawlee's async jar and browsersmith's sync
- *   jar are incompatible objects); cookies interchange as HTTP headers — see
- *   {@link SetCookieCaptureJar} for the response-direction fidelity bridge.
+ *   jar are incompatible objects); cookies interchange as HTTP headers —
+ *   request cookies arrive on the header from Crawlee's session, and the
+ *   wrapped Response re-exposes every wire `Set-Cookie` via
+ *   `fetchResponse.getSetCookie()` for the base to harvest.
  * - `ignoreTlsErrors` → typed {@link IgnoreTlsErrorsUnsupportedError}:
  *   browsersmith performs real certificate-validating handshakes and cannot
  *   skip validation.
@@ -33,6 +35,7 @@
  */
 
 import { BaseHttpClient, type CustomFetchOptions } from "@crawlee/http-client";
+import type { Cookie, CookieJar, CookieUrl, SameSiteContext } from "@browsercore/cookies";
 import {
     createClient,
     getProfile,
@@ -43,7 +46,6 @@ import {
     type FetchOptions,
     type ProfileId,
 } from "browsersmith";
-import { SetCookieCaptureJar } from "./cookie-capture.js";
 import { IgnoreTlsErrorsUnsupportedError, UnsupportedHttpMethodError } from "./errors.js";
 import { resolveProfileId } from "./profile.js";
 import { toCrawleeResponse } from "./response.js";
@@ -70,6 +72,45 @@ const SUPPORTED_HTTP_METHODS: ReadonlySet<string> = new Set([
 const SIGNAL_OWNED_DEADLINE_MS = 2_147_483_647;
 
 /**
+ * A browsersmith jar that deliberately stores nothing — the client-level
+ * `cookieJar` handed to `createClient` so browsersmith's own cookie engine
+ * stays out of the way. Crawlee's `BaseHttpClient` owns cookies: request
+ * cookies arrive on the `cookie` header (the base applies the session jar),
+ * and response cookies flow back through the wrapped Response's
+ * `getSetCookie()`. Without this, browsersmith's default jar would store
+ * response cookies and its `applyCookies` would then OVERWRITE the header on
+ * subsequent requests — hijacking the session's cookies. Inert on both
+ * sides; cookie fidelity is header-based end to end.
+ */
+export class InertCookieJar implements CookieJar {
+    public readonly id = "browsercore-crawlee-inert" as never;
+
+    public getCookies(_url: CookieUrl, _context?: SameSiteContext): Cookie[] {
+        return [];
+    }
+
+    public setCookie(_raw: string, _url: CookieUrl): void {
+        // Cookies are interchange-format only — the session jar is Crawlee's.
+    }
+
+    public removeCookie(_name: string, _domain: string, _path: string): void {
+        // Nothing stored, nothing to remove.
+    }
+
+    public clear(): void {
+        // Nothing stored, nothing to clear.
+    }
+
+    public serialize(): string {
+        return "{}";
+    }
+
+    public deserialize(_json: string): void {
+        // Deliberately stateless — nothing to restore.
+    }
+}
+
+/**
  * Crawlee HTTP client that fetches through browsersmith — browser-identical
  * TLS/HTTP2 fingerprints, HTTP CONNECT and SOCKS5/5h proxying, zero native
  * dependencies.
@@ -92,13 +133,9 @@ const SIGNAL_OWNED_DEADLINE_MS = 2_147_483_647;
 export class BrowsersmithHttpClient extends BaseHttpClient {
     /** One pooled browsersmith client per BrowsersmithHttpClient instance. */
     readonly #client: FetchClient;
-    /** Options the shared client was built from, reused for HEAD one-shots. */
-    readonly #clientOptions: Parameters<typeof createClient>[0];
     readonly #profileSelection: "auto" | ProfileId;
     readonly #timeoutMs: number | undefined;
     readonly #maxRedirects: number;
-    /** Transport-seam mode: the underlying protocol is known to be HTTP/1.1. */
-    readonly #transportSeam: boolean;
 
     /**
      * @param options - Profile pinning, timeouts, logger, and advanced
@@ -116,12 +153,10 @@ export class BrowsersmithHttpClient extends BaseHttpClient {
         if (options.profile !== undefined && options.profile !== "auto") {
             getProfile(options.profile);
         }
-        this.#clientOptions = assembleClientOptions(options);
-        this.#client = createClient(this.#clientOptions);
+        this.#client = createClient(assembleClientOptions(options));
         this.#profileSelection = options.profile ?? "auto";
         this.#timeoutMs = options.timeoutMs;
         this.#maxRedirects = options.maxRedirects ?? 20;
-        this.#transportSeam = options.transportFactory !== undefined;
     }
 
     /**
@@ -152,43 +187,27 @@ export class BrowsersmithHttpClient extends BaseHttpClient {
         const proxy = init?.proxyUrl === undefined ? undefined : parseProxyUrl(init.proxyUrl);
         const profile = resolveProfileId(this.#profileSelection, init?.fingerprint);
         const body = await drainRequestBody(request);
-        // Fresh capture jar per request: request-side inert (cookies arrive
-        // via the header from Crawlee's session), response-side records every
-        // raw `Set-Cookie` value browsersmith saw on the wire.
-        const captureJar = new SetCookieCaptureJar();
-        // HEAD over the transport seam needs `Connection: close` (see
-        // assembleFetchOptions), which makes the server close the connection
-        // after responding. The shared pool does not evict server-closed
-        // entries, so HEAD runs on a one-shot client instead — the pooled
-        // connections for every other method stay untouched.
-        const headOverSeam = method === "HEAD" && this.#transportSeam;
-        const client = headOverSeam ? createClient(this.#clientOptions) : this.#client;
-        try {
-            const fetchOptions = assembleFetchOptions({
-                request,
-                init,
-                method,
-                profile,
-                proxy,
-                body,
-                captureJar,
-                timeoutMs: hasSignal(init?.signal) ? SIGNAL_OWNED_DEADLINE_MS : this.#timeoutMs,
-                maxRedirects: this.#maxRedirects,
-                headOverSeam,
-            });
-            const fetchResponse = await client.fetch(request.url, fetchOptions);
-            return await toCrawleeResponse(fetchResponse, captureJar.capturedSetCookies);
-        } finally {
-            if (headOverSeam) {
-                await client.close();
-            }
-        }
+        const fetchOptions = assembleFetchOptions({
+            request,
+            init,
+            method,
+            profile,
+            proxy,
+            body,
+            timeoutMs: hasSignal(init?.signal) ? SIGNAL_OWNED_DEADLINE_MS : this.#timeoutMs,
+            maxRedirects: this.#maxRedirects,
+        });
+        const fetchResponse = await this.#client.fetch(request.url, fetchOptions);
+        return toCrawleeResponse(fetchResponse);
     }
 }
 
 /** Only-assign-present-keys assembly — exactOptionalPropertyTypes forbids explicit `undefined` values. */
 function assembleClientOptions(options: BrowsersmithHttpClientOptions): Parameters<typeof createClient>[0] {
     return {
+        // Crawlee owns cookies (see InertCookieJar) — browsersmith's own jar
+        // must stay out of the request/response cookie path.
+        cookieJar: new InertCookieJar(),
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
         // fetch has no fallback EventProvider — default to browsersmith's Node
         // platform singleton unless the caller injects their own composition root.
@@ -204,10 +223,8 @@ type FetchOptionsAssembly = {
     readonly profile: ProfileId;
     readonly proxy: ReturnType<typeof parseProxyUrl> | undefined;
     readonly body: Uint8Array | undefined;
-    readonly captureJar: SetCookieCaptureJar;
     readonly timeoutMs: number | undefined;
     readonly maxRedirects: number;
-    readonly headOverSeam: boolean;
 };
 
 /** Only-assign-present-keys assembly of the per-request browsersmith options. */
@@ -215,27 +232,12 @@ function assembleFetchOptions(assembly: FetchOptionsAssembly): FetchOptions {
     // WHATWG types the request signal `AbortSignal | null` (null = absent);
     // browsersmith's option is `?: AbortSignal`, so null collapses to absence.
     const presentSignal = assembly.init?.signal ?? undefined;
-    const headers = headersToRecord(assembly.request.headers);
-    if (assembly.headOverSeam) {
-        // @browsercore/http1 delimits bodies by content-length/chunking and
-        // falls back to close-delimiting; a HEAD response carries no body and
-        // (from node and most servers) no content-length, so on a keep-alive
-        // connection the parser would wait for a close that never comes.
-        // On the transport seam the protocol is always HTTP/1.1, so
-        // `Connection: close` makes the close-delimited read resolve
-        // immediately. It is NOT applied on the real-TLS path: the ALPN
-        // result is unknown here and `Connection` is a forbidden header over
-        // HTTP/2 (RFC 7540 §8.1.2.2) — sending it would break the h2
-        // fingerprint the stack exists to protect.
-        headers["connection"] = "close";
-    }
     return {
         method: assembly.method,
-        headers,
+        headers: headersToRecord(assembly.request.headers),
         profile: assembly.profile,
         followRedirects: assembly.init?.redirect === "follow",
         maxRedirects: assembly.maxRedirects,
-        cookieJar: assembly.captureJar,
         ...(assembly.body === undefined ? {} : { body: assembly.body }),
         ...(assembly.proxy === undefined ? {} : { proxy: assembly.proxy }),
         ...(assembly.timeoutMs === undefined ? {} : { timeoutMs: assembly.timeoutMs }),

@@ -12,9 +12,7 @@
  * @module
  */
 
-export { BrowsersmithHttpClient } from "./client.js";
-export { SetCookieCaptureJar } from "./cookie-capture.js";
-export type { CapturedSetCookies } from "./cookie-capture.js";
+export { BrowsersmithHttpClient, InertCookieJar } from "./client.js";
 export { IgnoreTlsErrorsUnsupportedError, UnsupportedHttpMethodError, BrowsersmithHttpClientError } from "./errors.js";
 export { resolveProfileId } from "./profile.js";
 export { toCrawleeResponse } from "./response.js";
