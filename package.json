@@ -1,0 +1,64 @@
+{
+    "name": "@browsercore/crawlee",
+    "version": "0.1.0",
+    "description": "Crawlee HTTP client backed by browsersmith — browser-identical TLS/HTTP2 fingerprints, proxy rotation, zero native deps.",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/jverneuer/browsercore-crawlee.git"
+    },
+    "homepage": "https://github.com/jverneuer/browsercore-crawlee#readme",
+    "bugs": {
+        "url": "https://github.com/jverneuer/browsercore-crawlee/issues"
+    },
+    "license": "MIT",
+    "type": "module",
+    "sideEffects": false,
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md"
+    ],
+    "publishConfig": {
+        "access": "public",
+        "registry": "https://registry.npmjs.org/"
+    },
+    "scripts": {
+        "clean": "rm -rf dist",
+        "build": "tsc -p tsconfig.json",
+        "prepublishOnly": "npm run clean && npm run build",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "test": "vitest run",
+        "lint": "oxlint --type-aware src/"
+    },
+    "dependencies": {
+        "@browsercore/transport": "^0.2.7",
+        "browsersmith": "^0.0.16"
+    },
+    "peerDependencies": {
+        "@crawlee/http-client": ">=4.0.0-rc.0 <5"
+    },
+    "devDependencies": {
+        "@browsercore/dev": "0.2.0",
+        "@crawlee/http-client": "4.0.0-rc.2",
+        "@types/node": "^26.1.2",
+        "@vitest/coverage-v8": "^4.1.10",
+        "crawlee": "4.0.0-rc.2",
+        "oxlint": "^1.76.0",
+        "oxlint-tsgolint": "7.0.2007",
+        "tough-cookie": "^6.1.0",
+        "tsx": "^4.19.2",
+        "typescript": "^7.0.0",
+        "vitest": "^4.1.10"
+    },
+    "engines": {
+        "node": ">=26.0.0"
+    }
+}
