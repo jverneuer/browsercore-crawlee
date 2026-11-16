@@ -1,6 +1,6 @@
 {
     "name": "@browsercore/crawlee",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Crawlee HTTP client backed by browsersmith — browser-identical TLS/HTTP2 fingerprints, proxy rotation, zero native deps.",
     "repository": {
         "type": "git",
