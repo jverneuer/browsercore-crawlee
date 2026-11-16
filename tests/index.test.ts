@@ -8,7 +8,6 @@ import * as api from "../src/index.js";
 describe("@browsercore/crawlee public API", () => {
     it("exports the documented surface", () => {
         expect(typeof api.BrowsersmithHttpClient).toBe("function");
-        expect(typeof api.SetCookieCaptureJar).toBe("function");
         expect(typeof api.resolveProfileId).toBe("function");
         expect(typeof api.toCrawleeResponse).toBe("function");
         for (const errorClass of [

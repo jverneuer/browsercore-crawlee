@@ -12,71 +12,16 @@
 
 import http from "node:http";
 import { connect } from "@browsercore/transport";
-import type { EventProvider } from "@browsercore/contracts";
 import type { CookieJar, SessionFingerprint } from "@crawlee/types";
 import {
     nodeCompression,
     nodeCryptoProvider,
     nodeDns,
+    nodeEventProvider,
     nodeNet,
 } from "browsersmith";
 import type { BrowsersmithHttpClientOptions } from "../src/index.js";
 import { BrowsersmithHttpClient } from "../src/index.js";
-
-/**
- * A fresh EventProvider per transport.
- *
- * `TcpTransport.on`/`emit` forward to the injected EventProvider without
- * per-transport scoping, and browsersmith's `nodeEventProvider` is a
- * process-wide singleton — two transports sharing it hear each other's
- * `data`/`close`/`error` events (an aborted request's `close` on the shared
- * bus reads as "this transport closed" on the NEXT connection). The real
- * TLS path is immune — the TLS adapter owns a private emitter — but the
- * transport seam must supply one provider per transport.
- */
-function freshEventProvider(): EventProvider {
-    const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
-    function add(event: string, listener: (...args: unknown[]) => void): void {
-        const set = listeners.get(event) ?? new Set();
-        set.add(listener);
-        listeners.set(event, set);
-    }
-    function remove(event: string, listener: (...args: unknown[]) => void): void {
-        listeners.get(event)?.delete(listener);
-    }
-    return {
-        on: add,
-        once(event, listener) {
-            const wrapped = (...args: unknown[]): void => {
-                remove(event, wrapped);
-                listener(...args);
-            };
-            add(event, wrapped);
-        },
-        off: remove,
-        removeListener: remove,
-        emit(event, ...args) {
-            const set = listeners.get(event);
-            if (set === undefined) {
-                return false;
-            }
-            for (const listener of [...set]) {
-                listener(...args);
-            }
-            return set.size > 0;
-        },
-        listenerCount(event) {
-            return listeners.get(event)?.size ?? 0;
-        },
-        removeAllListeners(event) {
-            if (event === undefined) {
-                listeners.clear();
-            } else {
-                listeners.delete(event);
-            }
-        },
-    };
-}
 
 /** Minimal session stub covering what BaseHttpClient reads from a session. */
 export interface FakeSession {
@@ -228,8 +173,10 @@ export function recordingTransportFactory(
             port: server.port,
             net: nodeNet,
             dns: nodeDns,
-            // One event bus per transport — see freshEventProvider.
-            events: freshEventProvider(),
+            // The shared provider — the real-world path. transport 0.2.8
+            // scopes transport events, so sharing is safe; the passing suite
+            // doubles as the isolation regression guard.
+            events: nodeEventProvider,
             crypto: nodeCryptoProvider,
             compression: nodeCompression,
         });

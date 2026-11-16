@@ -1,24 +1,30 @@
 /**
  * Fingerprint → browsersmith profile resolution.
  *
- * Mirrors ImpitHttpClient's `#resolveImpitBrowser` strategy exactly: the
- * session's `fingerprint.browser` family selects a concrete profile; every
- * family outside the two the stack has battle-tested (`edge`, `safari`) and
- * the fingerprint-less default collapse onto the Chrome profile so the request
- * still carries a realistic browser fingerprint. An explicit client-level
- * profile wins over every per-request hint — the same override precedence
- * impit applies to its `browser` option.
- *
- * (`safari-18`/`edge-128` exist in the registry; callers who want them pin
- * them explicitly via {@link BrowsersmithHttpClientOptions.profile}. Note
- * safari-18's HTTP/2 SETTINGS currently draw GOAWAY/PROTOCOL_ERROR from
- * common nginx deployments — see the README limitations.)
+ * Mirrors ImpitHttpClient's `#resolveImpitBrowser` strategy, mapped onto the
+ * browsersmith registry: the session's `fingerprint.browser` family selects
+ * a concrete profile; the Chromium-based families the stack does not model
+ * (`edge`) and unknown hints collapse onto the Chrome profile — the same
+ * fallback impit applies to families it cannot model. `safari` maps to its
+ * native profile (the registry models it, and its HTTP/2 framing is
+ * live-validated against real edges). An explicit client-level profile wins
+ * over every per-request hint — the same override precedence impit applies
+ * to its `browser` option.
  */
 
-import { PROFILES } from "browsersmith";
+import { getProfile, PROFILES } from "browsersmith";
 import type { ProfileId } from "@browsercore/profiles";
 import type { SessionFingerprint } from "@crawlee/types";
 import type { ProfileSelection } from "./types.js";
+
+/**
+ * Cast a registry-guaranteed id to the branded ProfileId — the same pattern
+ * browsersmith's own profiles.ts uses for its starter ids; the registry is
+ * the source of truth these literals are checked against at module load.
+ */
+function brandedProfile(id: "safari-18"): ProfileId {
+    return id as ProfileId;
+}
 
 /**
  * Resolve the browsersmith profile for one request.
@@ -36,8 +42,14 @@ export function resolveProfileId(
     if (selection !== "auto") {
         return selection;
     }
-    // Only the two battle-tested families get their native profile; Chromium
-    // families and unknown hints collapse onto Chrome — the same fallback
-    // impit applies to families it cannot model.
-    return fingerprint?.browser === "firefox" ? PROFILES["firefox-128"] : PROFILES["chrome-140"];
+    const family = fingerprint?.browser;
+    if (family === "firefox") {
+        return PROFILES["firefox-128"];
+    }
+    if (family === "safari") {
+        // Fail fast at module load if a registry bump ever drops it.
+        return getProfile(brandedProfile("safari-18")).id;
+    }
+    // `chrome`, Chromium-based `edge`, and fingerprint-less requests.
+    return PROFILES["chrome-140"];
 }

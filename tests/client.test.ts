@@ -243,15 +243,15 @@ describe("BrowsersmithHttpClient — cookie interop", () => {
         }
     });
 
-    it("multi-cookie responses deliver the value browsersmith preserves (last one)", async () => {
-        // Documented limitation: @browsercore/http1/http2 decoders collapse
-        // duplicate header names to the last value, so of several Set-Cookie
-        // headers only the final one reaches this package. The capture-jar
-        // bridge forwards everything the stack preserves.
+    it("multi-cookie responses land in the session jar with full fidelity", async () => {
+        // fetch 0.2.21 exposes every Set-Cookie via getSetCookie() and the
+        // wrapper rebuilds WHATWG Headers from the pair list, so the base
+        // class harvests ALL of them — no side channel, no last-wins loss.
         const server = await startTestServer({
             "/multi": (_req, res) => {
                 res.appendHeader("set-cookie", "a=1; Path=/");
                 res.appendHeader("set-cookie", "b=2; Path=/");
+                res.appendHeader("set-cookie", "c=3; Path=/; Secure");
                 res.writeHead(200);
                 res.end("multi");
             },
@@ -263,10 +263,68 @@ describe("BrowsersmithHttpClient — cookie interop", () => {
                 new Request(`http://127.0.0.1:${server.port}/multi`),
                 { cookieJar: jar as unknown as import("@crawlee/types").CookieJar },
             );
-            expect(response.headers.getSetCookie()).toEqual(["b=2; Path=/"]);
-            const names = jar.getCookiesSync(`http://127.0.0.1:${server.port}/`).map((c) => c.key);
-            expect(names).toContain("b");
-            expect(names).not.toContain("a");
+            expect(response.headers.getSetCookie()).toEqual([
+                "a=1; Path=/",
+                "b=2; Path=/",
+                "c=3; Path=/; Secure",
+            ]);
+            const names = jar.getCookiesSync(`http://127.0.0.1:${server.port}/`).map((c) => c.key).sort();
+            expect(names).toEqual(["a", "b", "c"]);
+        } finally {
+            await client.close();
+            await server.close();
+        }
+    });
+
+    it("HEAD resolves immediately on a pooled connection and the connection is reusable", async () => {
+        // http1 0.2.3 frames HEAD/204/304 as body-less — no close-delimiting
+        // hang, no Connection: close workaround, no one-shot client.
+        const server = await startTestServer({
+            "/head": (_req, res) => {
+                res.writeHead(200, { "x-head": "yes" });
+                res.end("ignored");
+            },
+            "/after": (_req, res) => {
+                res.writeHead(200, { "content-type": "text/plain" });
+                res.end("still alive");
+            },
+        });
+        const client = clientForServer(server);
+        try {
+            const t0 = Date.now();
+            const head = await client.sendRequest(new Request(`http://127.0.0.1:${server.port}/head`, { method: "HEAD" }));
+            const headMs = Date.now() - t0;
+            expect(head.status).toBe(200);
+            expect(head.headers.get("x-head")).toBe("yes");
+            expect(await head.text()).toBe("");
+            expect(headMs).toBeLessThan(2000);
+            // The pooled transport survives the HEAD — next request reuses it.
+            const after = await client.sendRequest(new Request(`http://127.0.0.1:${server.port}/after`));
+            expect(after.status).toBe(200);
+            expect(await after.text()).toBe("still alive");
+        } finally {
+            await client.close();
+            await server.close();
+        }
+    });
+
+    it("a safari session fingerprint switches the wire profile to safari-18", async () => {
+        const server = await startTestServer({
+            "/who": (req, res) => {
+                res.writeHead(200, { "content-type": "text/plain" });
+                res.end(String(req.headers["user-agent"] ?? ""));
+            },
+        });
+        const client = clientForServer(server);
+        const session = { fingerprint: { browser: "safari" } } as unknown as ISession;
+        try {
+            const response = await client.sendRequest(
+                new Request(`http://127.0.0.1:${server.port}/who`),
+                { session },
+            );
+            const userAgent = await response.text();
+            expect(userAgent).toContain("Safari");
+            expect(userAgent).not.toContain("Chrome/140");
         } finally {
             await client.close();
             await server.close();

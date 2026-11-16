@@ -66,7 +66,8 @@ new BrowsersmithHttpClient({ profile: "firefox-128" });
 
 // Or follow each session's fingerprint (default "auto"):
 //   fingerprint.browser "firefox" → firefox-128
-//   "chrome" / "edge" / "safari" / no fingerprint → chrome-140
+//   fingerprint.browser "safari" → safari-18
+//   "chrome" / "edge" / no fingerprint → chrome-140
 new BrowsersmithHttpClient({ profile: "auto" });
 ```
 
@@ -79,14 +80,14 @@ This mirrors `ImpitHttpClient`'s override precedence: an explicit profile wins o
 | Option | Mapping |
 | --- | --- |
 | `proxyUrl` | `parseProxyUrl` → browsersmith's tunnel (`http` / `socks5` / `socks5h`; `https` scheme → typed `ProxyConfigError` naming the scheme) |
-| `fingerprint.browser` | profile: `firefox` → `firefox-128`, everything else / missing → `chrome-140`; an explicit `profile` option wins |
+| `fingerprint.browser` | profile: `firefox` → `firefox-128`, `safari` → `safari-18`, `chrome`/`edge`/missing → `chrome-140`; an explicit `profile` option wins |
 | `cookieJar` | not forwarded — Crawlee's async jar and browsersmith's sync jar are incompatible objects, so cookies interchange as HTTP headers (see below) |
 | `ignoreTlsErrors` | typed `IgnoreTlsErrorsUnsupportedError` — browsersmith performs real certificate-validating handshakes and cannot skip verification |
 | `signal` | forwarded; the signal owns the deadline (the wall-clock timer is set past any practical crawl length, mirroring impit's `timeout: null` signal mode) |
 
-**Cookie interop strategy** (mirroring the impit-client division of labor): Crawlee's `BaseHttpClient` applies the session jar to the request's `cookie` header before the request reaches this client, and the header is forwarded verbatim; on the response side, this package re-emits the `Set-Cookie` values the stack saw on the wire onto the wrapped `Response` so `BaseHttpClient` harvests them into the session jar via `headers.getSetCookie()`. The jar objects never meet — the HTTP headers are the interchange format.
+**Cookie interop strategy** (mirroring the impit-client division of labor): Crawlee's `BaseHttpClient` applies the session jar to the request's `cookie` header before the request reaches this client, and the header is forwarded verbatim. On the response side, fetch 0.2.21 exposes every wire `Set-Cookie` via `fetchResponse.getSetCookie()`; the wrapper rebuilds WHATWG `Headers` from the pair list (duplicates preserved), so `BaseHttpClient` harvests **all** of them into the session jar — multi-cookie responses land with full fidelity, no side channel. The client-level jar handed to browsersmith is an `InertCookieJar`: browsersmith's own cookie engine stays out of the cookie path (its default jar would otherwise store response cookies and overwrite the header Crawlee's session applied on subsequent requests).
 
-**Response fidelity**: the wrapper (`ResponseWithUrl`) preserves status, status text, final URL, all headers, and the fully decompressed body, so redirect resolution and cookie harvesting see exactly what the wire produced.
+**Response fidelity**: the wrapper (`ResponseWithUrl`) preserves status, status text, final URL, all headers (every `Set-Cookie` value in wire order), and the fully decompressed body, so redirect resolution and cookie harvesting see exactly what the wire produced.
 
 One browsersmith `FetchClient` per client instance; no additional queuing — Crawlee owns concurrency.
 
@@ -97,9 +98,9 @@ One browsersmith `FetchClient` per client instance; no additional queuing — Cr
 | `BrowsersmithHttpClient` | class | The Crawlee HTTP client (extends `BaseHttpClient`) |
 | `BrowsersmithHttpClientOptions` | interface | `profile` (`ProfileId \| "auto"`), `timeoutMs`, `maxRedirects`, `ignoreTlsErrors`, `logger`, `platform`, `transportFactory` |
 | `ProfileSelection` | type alias | `ProfileId \| "auto"` |
+| `InertCookieJar` | class | The stateless jar handed to browsersmith — keeps its cookie engine out of Crawlee's cookie path |
 | `resolveProfileId()` | function | Pure fingerprint → profile mapping |
 | `toCrawleeResponse()` | function | FetchResponse → `ResponseWithUrl` wrapping |
-| `SetCookieCaptureJar` | class | Inert response-side jar capturing raw `Set-Cookie` values verbatim |
 | `BrowsersmithHttpClientError` | class | Base typed error (`kind` + `details` + `cause`) |
 | `IgnoreTlsErrorsUnsupportedError` | class | `ignoreTlsErrors` requested — browsersmith cannot skip certificate validation |
 | `UnsupportedHttpMethodError` | class | Method outside GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS |
@@ -108,11 +109,8 @@ One browsersmith `FetchClient` per client instance; no additional queuing — Cr
 ## Limitations
 
 - **No `http://` origins on the real dial.** browsersmith always negotiates TLS (real path: TCP → TLS → ALPN h2/http1.1). Plain-HTTP targets need the `transportFactory` test seam (see the options docs); the seam speaks HTTP/1.1 to whatever transport you inject.
-- **`ignoreTlsErrors` is a typed error, not a silent downgrade.** A MITM proxy's certificate breaks the browser fingerprint the stack exists to produce. Use `ImpitHttpClient` if you need MITM support.
-- **Multi-cookie responses deliver one `Set-Cookie`.** browsersmith 0.0.16's protocol decoders (`@browsercore/http1` response parsing, `@browsercore/http2` HEADERS assembly) collapse duplicate header names to the last value, so of several `Set-Cookie` headers only the final one reaches the session jar. This package forwards everything the stack preserves; when browsersmith gains duplicate-header fidelity, the harvesting picks it up with no change here. Single-cookie responses (the common case) are fully preserved.
-- **HEAD over HTTP/1.1-only origins.** Over HTTP/2 HEAD is clean. On the real-TLS path an origin that negotiates HTTP/1.1 (and keep-alives after a HEAD with no `content-length`) trips a close-delimiting wait in `@browsercore/http1` — the request eventually resolves and the connection is recycled, but slowly. The `transportFactory` seam is exempt (the client detects seam mode and sends `Connection: close`, which the pool isolation below makes safe).
-- **The browsersmith pool does not evict server-closed connections.** A server-initiated close (keep-alive timeout) leaves a dead pool entry until the next dial failure; the subsequent request surfaces a typed `FetchError` and Crawlee's retry policy re-dials. Retryable at the crawler level.
-- **`safari-18`'s HTTP/2 SETTINGS draw GOAWAY/PROTOCOL_ERROR from common nginx deployments** (verified live against books.toscrape.com). `auto` never selects it; pinning it explicitly is at your own risk.
+- **`ignoreTlsErrors` is a typed error, not a silent downgrade.** browsersmith performs real certificate-validating handshakes — a request that skips verification would not produce a browser fingerprint worth impersonating, so the flag is rejected with `IgnoreTlsErrorsUnsupportedError` instead of silently downgrading security. A MITM proxy's certificate breaks exactly that fingerprint; use `ImpitHttpClient` if you need MITM support.
+- **`https://` proxy scheme unsupported.** Tunneling through a TLS-encrypted proxy is not modeled by the underlying stack (`http` CONNECT, `socks5`, `socks5h` are); the scheme is rejected with a typed `ProxyConfigError` naming it.
 - **Supported methods**: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS — browsersmith's `FetchMethod` union; anything else throws `UnsupportedHttpMethodError` instead of sending an unvalidated wire method.
 
 ## Package dependencies
