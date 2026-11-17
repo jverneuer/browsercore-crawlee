@@ -29,7 +29,7 @@ afterAll(async () => {
 describe.for(["browsersmith", "undici"] as const)("CheerioCrawler end-to-end (%s)", (kind) => {
     it("crawls a redirect chain to the final page with parsed HTML", async () => {
         const entry = `${originOf(server)}/redirect?status=301&to=/page`;
-        const observation = await crawlWith(kind, [entry], server);
+        const observation = await crawlWith(kind, [entry]);
         expect(observation.statuses).toEqual([200]);
         expect(observation.loadedUrls).toEqual([`${originOf(server)}/page`]);
         expect(observation.titles).toEqual(["conformance landing"]);
@@ -39,7 +39,7 @@ describe.for(["browsersmith", "undici"] as const)("CheerioCrawler end-to-end (%s
         // /cookie-drop serves HTML AND sets two cookies; /cookie-echo renders
         // the cookie header it received into the page body. A working session
         // jar interop means the second request carries the first's cookies.
-        const observation = await crawlWith(kind, [`${originOf(server)}/cookie-drop`, `${originOf(server)}/cookie-echo`], server);
+        const observation = await crawlWith(kind, [`${originOf(server)}/cookie-drop`, `${originOf(server)}/cookie-echo`]);
         expect(observation.statuses).toEqual([200, 200]);
         expect(observation.cookieEchoes[1]).toContain("dropped=a");
         expect(observation.cookieEchoes[1]).toContain("dropped2=b");
@@ -53,8 +53,8 @@ describe("CheerioCrawler end-to-end — cross-client equivalence", () => {
             `${originOf(server)}/cookie-drop`,
             `${originOf(server)}/cookie-echo`,
         ];
-        const smith = await crawlWith("browsersmith", urls, server);
-        const stock = await crawlWith("undici", urls, server);
+        const smith = await crawlWith("browsersmith", urls);
+        const stock = await crawlWith("undici", urls);
         expect(smith.statuses).toEqual(stock.statuses);
         expect(smith.loadedUrls).toEqual(stock.loadedUrls);
         expect(smith.titles).toEqual(stock.titles);

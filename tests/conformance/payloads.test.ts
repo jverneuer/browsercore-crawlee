@@ -32,7 +32,7 @@ afterAll(async () => {
 
 describe.for(CLIENT_KINDS)("payload handling (%s)", (kind) => {
     it("serves a HEAD request with headers and an empty body", async () => {
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const response = await handle.client.sendRequest(
                 new Request(`${originOf(server)}/echo`, { method: "HEAD" }),
@@ -52,7 +52,7 @@ describe.for(CLIENT_KINDS)("payload handling (%s)", (kind) => {
     // before that, a compressed response through the seam failed with a typed
     // ContentEncodingError instead of yielding the decoded body.
     it("round-trips a gzip content-encoding response as the decompressed body", async () => {
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const response = await handle.client.sendRequest(new Request(`${originOf(server)}/compressed?enc=gzip`));
             expect(response.status).toBe(200);
@@ -63,7 +63,7 @@ describe.for(CLIENT_KINDS)("payload handling (%s)", (kind) => {
     });
 
     it("round-trips a brotli content-encoding response as the decompressed body", async () => {
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const response = await handle.client.sendRequest(new Request(`${originOf(server)}/compressed?enc=br`));
             expect(response.status).toBe(200);
@@ -74,7 +74,7 @@ describe.for(CLIENT_KINDS)("payload handling (%s)", (kind) => {
     });
 
     it("advertises an accept-encoding that covers gzip on content-bearing requests", async () => {
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const response = await handle.client.sendRequest(new Request(`${originOf(server)}/echo`));
             expect(response.status).toBe(200);
@@ -139,7 +139,7 @@ describe.for(CLIENT_KINDS)("connection reuse (%s)", (kind: ClientKind) => {
     it("serves two sequential requests over one keep-alive connection", async () => {
         const reuseFixture = await startConformanceServer();
         const proxy = await startCountingProxy(reuseFixture.port);
-        const handle = clientFor(kind, reuseFixture);
+        const handle = clientFor(kind);
         try {
             // Warm-up ×2: undici's global pool opens a spare socket for the
             // first two requests of a cold origin; the reuse property under

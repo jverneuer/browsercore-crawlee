@@ -25,7 +25,7 @@ import * as http from "node:http";
 import * as net from "node:net";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import type { Duplex } from "node:stream";
-import { CheerioCrawler, Configuration, MemoryStorageBackend, RequestQueue, SessionPool, serviceLocator } from "crawlee";
+import { CheerioCrawler, Configuration, RequestQueue, SessionPool, serviceLocator } from "crawlee";
 import type { BaseHttpClient } from "@crawlee/http-client";
 import { FetchHttpClient } from "@crawlee/http-client";
 import type { CloseReason, Transport, TransportId, TransportState } from "@browsercore/transport";
@@ -34,7 +34,7 @@ import type { TestServer } from "../helpers.js";
 import { startTestServer } from "../helpers.js";
 import { BrowsersmithHttpClient } from "../../src/index.js";
 import type { BrowsersmithHttpClientOptions } from "../../src/index.js";
-import { nodeCompression, nodeCryptoProvider, nodeDns, nodeEventProvider, nodeNet } from "browsersmith";
+import { nodeDns, nodeEventProvider, nodeNet } from "browsersmith";
 
 /** The two clients every conformance scenario runs against. */
 export const CLIENT_KINDS = ["browsersmith", "undici"] as const;
@@ -59,7 +59,6 @@ export interface ClientHandle {
  */
 export function clientFor(
     kind: ClientKind,
-    server: TestServer,
     options: BrowsersmithHttpClientOptions = {},
 ): ClientHandle {
     if (kind === "undici") {
@@ -75,14 +74,15 @@ export function clientFor(
         ...options,
         transportFactory: async (host, port) => {
             void host; // Routing is by port; the dialed hostname is asserted by the proxy scenarios.
+            // transport 0.2.10's TransportOptions carries net/dns/events/clock
+            // only — crypto and compression are consumed higher up (the TLS
+            // layer's platform bundle), never by the TCP dialer.
             return connectTransport({
                 host: "127.0.0.1",
                 port,
                 net: nodeNet,
                 dns: nodeDns,
                 events: nodeEventProvider,
-                crypto: nodeCryptoProvider,
-                compression: nodeCompression,
             });
         },
     });
@@ -98,7 +98,7 @@ export function clientFor(
  * dropping its requests.
  */
 /**
- * Point crawlee's GLOBAL service locator at an in-memory storage backend.
+ * Point crawlee's GLOBAL service locator at in-memory storage.
  *
  * Why global and not just per-crawler `configuration`: the crawler's OWN
  * default request queue is opened through `serviceLocator.getConfiguration()`
@@ -108,11 +108,16 @@ export function clientFor(
  * concurrently running test files (vitest workers), silently dropping
  * requests. Each worker imports this module once, so each gets its own
  * backend: fully isolated, zero disk artifacts.
+ *
+ * crawlee 4 (4.0.0-rc.2) removed the Configuration `{ storageClient }`
+ * option — it was silently ignored at runtime, quietly leaking crawls onto
+ * disk. The current contract: a `persistStorage: false` configuration makes
+ * `serviceLocator.getStorageBackend()` default to a fresh MemoryStorageBackend.
  */
-serviceLocator.setConfiguration(new Configuration({ storageClient: new MemoryStorageBackend() }));
+serviceLocator.setConfiguration(new Configuration({ persistStorage: false }));
 
 export function freshCrawlerConfiguration(): Configuration {
-    return new Configuration({ storageClient: new MemoryStorageBackend() });
+    return new Configuration({ persistStorage: false });
 }
 
 /**
@@ -280,10 +285,12 @@ export interface LocalProxy {
 
 /** Stop an `http.Server`/`net.Server` without letting pooled sockets stall it. */
 async function closeServer(server: http.Server | net.Server): Promise<void> {
+    // closeIdleConnections is an http.Server API (Node 18.2+): pooled keep-alive
+    // sockets would otherwise stall the close callback. Plain net.Server (the
+    // CONNECT proxies) has no such pool — its tunnels are torn down by the
+    // transport close inside each scenario.
     if (server instanceof http.Server) {
         server.closeIdleConnections();
-    } else {
-        server.closeAllConnections?.();
     }
     await new Promise<void>((resolve) => server.close(() => resolve()));
 }
@@ -537,6 +544,15 @@ function adaptSocket(socket: net.Socket): Transport {
         once: (event, listener) => {
             socket.once(event, listener as never);
         },
+        off: (event, listener) => {
+            socket.off(event, listener as never);
+        },
+        removeListener: (event, listener) => {
+            socket.removeListener(event, listener as never);
+        },
+        emit: (event, ...args) => socket.emit(event, ...args),
+        listenerCount: (event) => socket.listenerCount(event),
+        removeAllListeners: (event) => socket.removeAllListeners(event),
     };
 }
 
@@ -562,9 +578,8 @@ export interface CrawlerObservation {
 export async function crawlWith(
     kind: ClientKind,
     urls: readonly string[],
-    fixture: TestServer,
 ): Promise<CrawlerObservation> {
-    const handle = clientFor(kind, fixture);
+    const handle = clientFor(kind);
     const statuses: number[] = [];
     const loadedUrls: string[] = [];
     const titles: string[] = [];
@@ -582,6 +597,12 @@ export async function crawlWith(
     const crawler = new CheerioCrawler({
         configuration: freshCrawlerConfiguration(),
         httpClient: handle.client,
+        // @ts-expect-error — crawlee 4.0.0-rc.2's own Session class is not
+        // assignable to its own ISessionPool.getSession() return type under
+        // exactOptionalPropertyTypes (Session.get proxyInfo(): ProxyInfo |
+        // undefined vs ISession.proxyInfo?: ProxyInfo). crawlee's declaration
+        // bug, not ours; the runtime pool IS the interface implementation
+        // (SessionPool literally `implements ISessionPool`).
         sessionPool,
         requestManager,
         maxRequestRetries: 0,

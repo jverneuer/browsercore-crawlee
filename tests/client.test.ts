@@ -24,7 +24,6 @@ import {
     clientForServer,
     recordingTransportFactory,
     startTestServer,
-    type FakeSession,
     type TestServer,
 } from "./helpers.js";
 
