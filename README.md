@@ -113,6 +113,48 @@ One browsersmith `FetchClient` per client instance; no additional queuing — Cr
 - **`https://` proxy scheme unsupported.** Tunneling through a TLS-encrypted proxy is not modeled by the underlying stack (`http` CONNECT, `socks5`, `socks5h` are); the scheme is rejected with a typed `ProxyConfigError` naming it.
 - **Supported methods**: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS — browsersmith's `FetchMethod` union; anything else throws `UnsupportedHttpMethodError` instead of sending an unvalidated wire method.
 
+## Verification
+
+Three layers prove the two properties this package exists for — *behaves like crawlee's stock HTTP clients* and *the wire fingerprint stays browser-identical* — and both are wired into CI as merge gates.
+
+### Layer 1 — Conformance suite (`tests/conformance/`, offline, in CI)
+
+Local `node:http` fixture servers drive a **real `CheerioCrawler`** and direct `sendRequest` calls through `BrowsersmithHttpClient`, with a **twin test using crawlee's stock `FetchHttpClient` (undici) against the SAME fixture** for every scenario. A scenario passes when both clients produce the same observable behavior (status, body, redirect chain, cookie-jar contents) — that equivalence is the evidence. The matrix mirrors crawlee's own `BaseHttpClient` contract tests (Apache-2.0; scenario origins cited per file):
+
+| Scenario | Stock-client twin |
+| --- | --- |
+| 301/302/303/307/308 semantics — incl. 303 POST→GET + body drop, non-POST body replay, multi-hop chains | yes |
+| Cross-origin redirect credential stripping; same-origin credentials kept | yes |
+| Cookie interop both directions — jar → `cookie` header, multi `Set-Cookie` → jar (getSetCookie path), merge precedence, redirect-hop jar updates | yes |
+| Timeout + AbortSignal abort (pre-aborted, mid-request, timeoutMillis) | yes |
+| Connection-refused → crawler-classified retryable error + clean final failure | yes |
+| HEAD requests | yes |
+| Keep-alive reuse across sequential requests | yes |
+| gzip/br round-trip | undici yes; browsersmith request-side asserted, response-side real-path only (see note) |
+| `proxyUrl` mapping — `http` CONNECT + `socks5h` through local in-process proxies; bad scheme → typed `ProxyConfigError` | N/A — `FetchHttpClient` documents itself as not supporting proxying |
+| End-to-end `CheerioCrawler` redirect chains + session-cookie carry | yes |
+
+> **gzip note:** the offline fixtures reach browsersmith through its `transportFactory` seam, whose HTTP/1.1 branch does not thread a decompression provider (`establishHttp1OverTransport`, @browsercore/fetch 0.2.21) — so response-side decompression for browsersmith is proven on the real TLS path (which does thread it) by the live integration suite against real gzip-served pages. The request side (browser `accept-encoding` profile) is asserted offline.
+
+Run: `npm test` (fully offline, deterministic — the crawler scenarios use in-memory storage and isolated session pools).
+
+### Layer 2 — Fingerprint parity (offline in CI + a one-request live gate in CI)
+
+- **Offline** (`tests/fingerprint-parity.test.ts`, part of `npm test`): drives the real client dial (`createClient`, chrome-140) against a capturing TCP sink and asserts the captured ClientHello hashes to the **exact real-Chrome golden JA4** `t13d1516h2_8daaf6152771_d8a2da3f94cd` (real Chrome 146 via tls.browserleaks.com, 2026-10-31 — the same pin browsersmith's own suite holds), plus the extension set, SNI and ALPN; and drives the real HTTP/2 connection stack over an in-memory transport (mirroring @browsercore/testing's emission tests) asserting the Akamai h2 golden `1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p` piece by piece: SETTINGS bytes and order, connection WINDOW_UPDATE 15663105, HEADERS flags `0x25` + priority block, pseudo-header order `m,a,s,p`, **no `host` field**, `priority: u=0, i`, profile-driven `accept-encoding`.
+- **Live** (`tests/fingerprint-parity.live.test.ts`, CI step after the unit suite): **one** request per run to `https://tls.peet.ws/api/all` (the fingerprint echo oracle) through a real `BrowsersmithHttpClient` dial, asserting the oracle reports exactly the golden JA4 and the golden Akamai h2 string — no prefix matching, no tail drift. One retry on failure (still ≤2 requests per CI run — polite usage). A failure means the wire is no longer browser-identical and blocks the merge.
+
+Run locally: `npm run test:fingerprint-live` (or `FINGERPRINT_LIVE=1` / `BROWSERSMITH_CRAWLEE_LIVE=1`).
+
+### Layer 3 — Blocking canary (`tests/blocking-canary.live.test.ts`, NOT in CI)
+
+A runnable comparison artifact for manual/scheduled runs: **two** requests to `tls.peet.ws/api/all` — one through Node's default client (`fetch`/undici, the stack `FetchHttpClient` uses) and one through `BrowsersmithHttpClient` — printing the observed JA4 + Akamai h2 fingerprints side by side. The only hard assertions are on our side (the exact goldens); undici's non-browser fingerprint is *documented, not asserted* — coupling the suite to Node's TLS build would be exactly the kind of flaky claim the canary exists to avoid.
+
+```bash
+npm run canary
+```
+
+How to read it: the browsersmith column must show the golden browser values (that is the anti-blocking property, live). The undici column will show a stock-runtime JA4 (different cipher/extension set) — that contrast is the point: same endpoint, same moment, browser-identical versus runtime-default.
+
 ## Package dependencies
 
 ```

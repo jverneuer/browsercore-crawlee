@@ -1,6 +1,6 @@
 {
     "name": "@browsercore/crawlee",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Crawlee HTTP client backed by browsersmith — browser-identical TLS/HTTP2 fingerprints, proxy rotation, zero native deps.",
     "repository": {
         "type": "git",
@@ -36,6 +36,8 @@
         "prepublishOnly": "npm run clean && npm run build",
         "typecheck": "tsc -p tsconfig.json --noEmit",
         "test": "vitest run",
+        "test:fingerprint-live": "FINGERPRINT_LIVE=1 vitest run tests/fingerprint-parity.live.test.ts",
+        "canary": "CANARY=1 vitest run tests/blocking-canary.live.test.ts",
         "lint": "oxlint --type-aware src/"
     },
     "dependencies": {
@@ -48,6 +50,8 @@
     },
     "devDependencies": {
         "@browsercore/dev": "0.2.0",
+        "@browsercore/http2": "0.2.12",
+        "@browsercore/testing": "0.2.9",
         "@crawlee/http-client": "4.0.0-rc.2",
         "@types/node": "^26.1.2",
         "@vitest/coverage-v8": "^4.1.10",
