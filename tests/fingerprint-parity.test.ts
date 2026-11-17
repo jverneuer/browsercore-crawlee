@@ -29,8 +29,9 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import { connectHttp2, FrameType, HpackDecoder, Http2Settings } from "@browsercore/http2";
-import type { HeaderField, Http2Connection, Http2SettingsMap } from "@browsercore/http2";
+import type { HeaderField, Http2Connection, Http2SettingsMap, Http2StreamId } from "@browsercore/http2";
 import {
     createPlatform,
     getProfile,
@@ -71,10 +72,15 @@ const CLIENT_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
  * A TCP socket that records every client write and never speaks back — the
  * TLS handshake stalls after the first flight, which is exactly the moment
  * the ClientHello (the fingerprintable bytes) has been written.
+ *
+ * Extends node's EventEmitter for the on/once surface: the canonical `Socket`
+ * interface declares them as literal-event overloads, and TS 7's contravariant
+ * overload-implementation check rejects hand-rolled overload groups on a
+ * class. EventEmitter's `(...args: any[])` listener parameter is bivariant
+ * with every overload (and the `any` lives in @types/node, not our code), so
+ * the inherited methods satisfy the interface directly.
  */
-class CapturingSocket implements Socket {
-    readonly #connectListeners: Array<() => void> = [];
-    readonly #listeners = new Map<string, Set<(arg?: unknown) => void>>();
+class CapturingSocket extends EventEmitter implements Socket {
     #destroyed = false;
     /** Every client write, in call order. */
     readonly writes: Uint8Array[] = [];
@@ -84,12 +90,11 @@ class CapturingSocket implements Socket {
     }
 
     constructor() {
+        super();
         // The transport awaits the TCP connect before writing; a loopback
         // sink is "connected" immediately.
         queueMicrotask(() => {
-            for (const listener of this.#connectListeners.splice(0)) {
-                listener();
-            }
+            this.emit("connect");
         });
     }
 
@@ -108,39 +113,8 @@ class CapturingSocket implements Socket {
             return;
         }
         this.#destroyed = true;
-        for (const listener of this.#listeners.get("close") ?? []) {
-            listener(true);
-        }
-        for (const listener of this.#listeners.get("error") ?? []) {
-            listener(error ?? new Error("socket destroyed"));
-        }
-    }
-
-    once(event: "connect" | "close", listener: () => void): void;
-    once(event: "error", listener: (err: Error) => void): void;
-    once(event: string, listener: (arg?: unknown) => void): void {
-        const wrapped = (arg?: unknown): void => {
-            this.#listeners.get(event)?.delete(wrapped);
-            listener(arg);
-        };
-        this.#addListener(event, wrapped);
-        if (event === "connect") {
-            this.#connectListeners.push(() => wrapped());
-        }
-    }
-
-    on(event: "data", listener: (chunk: Uint8Array) => void): void;
-    on(event: "drain" | "end", listener: () => void): void;
-    on(event: "error", listener: (err: Error) => void): void;
-    on(event: "close", listener: (hadError: boolean) => void): void;
-    on(event: string, listener: (arg?: unknown) => void): void {
-        this.#addListener(event, listener);
-    }
-
-    #addListener(event: string, listener: (arg?: unknown) => void): void {
-        const set = this.#listeners.get(event) ?? new Set();
-        set.add(listener);
-        this.#listeners.set(event, set);
+        this.emit("close", true);
+        this.emit("error", error ?? new Error("socket destroyed"));
     }
 }
 
@@ -157,7 +131,7 @@ function capturingNet(sockets: CapturingSocket[]): Net {
 
 /** A DNS resolver that resolves any name to the loopback sink. */
 const loopbackDns: DnsResolver = {
-    lookup: async (hostname: string, family: 4 | 6): Promise<readonly IPAddress[]> => [
+    lookup: async (_hostname: string, family: 4 | 6): Promise<readonly IPAddress[]> => [
         { address: family === 6 ? "::1" : "127.0.0.1", family },
     ],
 };
@@ -381,13 +355,22 @@ describe("fingerprint parity — HTTP/2 prelude off the real connection stack (c
             events: nodeEventProvider,
             crypto: nodeCryptoProvider,
             // Wired exactly as @browsercore/fetch's establishConnection h2
-            // branch wires it from the profile:
+            // branch wires it from the profile. The profile's optional h2
+            // fields arrive as `T | undefined`; exactOptionalPropertyTypes
+            // forbids writing `undefined` into Http2Options' optional fields,
+            // so each one is spread only when the profile carries it.
             initialSettings: profileSettingsMap(profile),
-            settingsOrder: profile.http2.settingsOrder,
-            settingsGrease: profile.http2.grease,
-            connectionWindowUpdate: profile.http2.connectionWindowUpdate,
-            pseudoHeaderOrder: profile.http2.pseudoHeaderOrder,
-            initialPriority: { exclusive: true, streamDependency: 0, weight: 0xff },
+            ...(profile.http2.settingsOrder !== undefined
+                ? { settingsOrder: profile.http2.settingsOrder }
+                : {}),
+            ...(profile.http2.grease !== undefined ? { settingsGrease: profile.http2.grease } : {}),
+            ...(profile.http2.connectionWindowUpdate !== undefined
+                ? { connectionWindowUpdate: profile.http2.connectionWindowUpdate }
+                : {}),
+            ...(profile.http2.pseudoHeaderOrder !== undefined
+                ? { pseudoHeaderOrder: profile.http2.pseudoHeaderOrder }
+                : {}),
+            initialPriority: { exclusive: true, streamDependency: 0 as Http2StreamId, weight: 0xff },
         });
         // Server-side half of the settings exchange: empty SETTINGS + ACK.
         transport.feed(
@@ -409,7 +392,7 @@ describe("fingerprint parity — HTTP/2 prelude off the real connection stack (c
                     ["user-agent", profile.http1.defaultHeaders["user-agent"] ?? ""],
                     ["accept", profile.http1.defaultHeaders["accept"] ?? ""],
                     ["accept-encoding", profile.http1.acceptEncoding],
-                    ["priority", profile.http2.http2DefaultHeaders?.priority ?? ""],
+                    ["priority", profile.http2.http2DefaultHeaders?.["priority"] ?? ""],
                 ]),
                 body: undefined,
             })

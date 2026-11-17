@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 import { BrowsersmithHttpClient } from "../src/index.js";
 
 // eslint-disable-next-line @typescript-eslint/naming-convention -- env var style
-const LIVE = process.env.FINGERPRINT_LIVE === "1" || process.env.BROWSERSMITH_CRAWLEE_LIVE === "1";
+const LIVE = process.env["FINGERPRINT_LIVE"] === "1" || process.env["BROWSERSMITH_CRAWLEE_LIVE"] === "1";
 
 /** Real Chrome 146 JA4 (tls.browserleaks.com, 2026-10-31). */
 const GOLD_JA4 = "t13d1516h2_8daaf6152771_d8a2da3f94cd" as const;

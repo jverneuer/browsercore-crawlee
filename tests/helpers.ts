@@ -14,8 +14,6 @@ import http from "node:http";
 import { connect } from "@browsercore/transport";
 import type { CookieJar, SessionFingerprint } from "@crawlee/types";
 import {
-    nodeCompression,
-    nodeCryptoProvider,
     nodeDns,
     nodeEventProvider,
     nodeNet,
@@ -54,7 +52,8 @@ export interface SeenRequest {
     readonly method: string;
     readonly url: string;
     readonly headers: http.IncomingHttpHeaders;
-    readonly body: string;
+    /** Filled progressively: "" until the request "end" event lands. */
+    body: string;
 }
 
 /**
@@ -175,10 +174,10 @@ export function recordingTransportFactory(
             dns: nodeDns,
             // The shared provider — the real-world path. transport 0.2.8
             // scopes transport events, so sharing is safe; the passing suite
-            // doubles as the isolation regression guard.
+            // doubles as the isolation regression guard. (crypto/compression
+            // are not TransportOptions members — the TCP dialer never was
+            // their consumer.)
             events: nodeEventProvider,
-            crypto: nodeCryptoProvider,
-            compression: nodeCompression,
         });
     };
     return { factory, dialed };

@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 import { BrowsersmithHttpClient } from "../src/index.js";
 
 // eslint-disable-next-line @typescript-eslint/naming-convention -- env var style
-const CANARY = process.env.CANARY === "1";
+const CANARY = process.env["CANARY"] === "1";
 
 /** The oracle's response shape — only the fingerprint fields we read. */
 interface PeetFingerprints {
@@ -50,8 +50,8 @@ async function readFingerprints(response: Response): Promise<PeetFingerprints> {
     if (typeof tls !== "object" || tls === null || typeof http2 !== "object" || http2 === null) {
         throw new Error("peet.ws oracle body is missing the tls/http2 sections");
     }
-    const ja4 = (tls as Record<string, unknown>).ja4;
-    const akamaiHttp2 = (http2 as Record<string, unknown>).akamai_fingerprint;
+    const ja4 = (tls as Record<string, unknown>)["ja4"];
+    const akamaiHttp2 = (http2 as Record<string, unknown>)["akamai_fingerprint"];
     if (typeof ja4 !== "string" || typeof akamaiHttp2 !== "string") {
         throw new Error("peet.ws oracle body is missing ja4/akamai_fingerprint");
     }

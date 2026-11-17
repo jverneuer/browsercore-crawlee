@@ -16,7 +16,7 @@ import { CheerioCrawler } from "crawlee";
 import { BrowsersmithHttpClient } from "../src/index.js";
 
 // eslint-disable-next-line @typescript-eslint/naming-convention -- env var style
-const LIVE = process.env.BROWSERSMITH_CRAWLEE_LIVE === "1";
+const LIVE = process.env["BROWSERSMITH_CRAWLEE_LIVE"] === "1";
 
 const CATEGORY_URLS = [
     "https://books.toscrape.com/catalogue/category/books/travel_2/index.html",

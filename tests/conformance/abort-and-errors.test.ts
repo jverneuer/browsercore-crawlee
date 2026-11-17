@@ -42,7 +42,7 @@ afterAll(async () => {
 
 describe.for(CLIENT_KINDS)("timeouts, aborts, and errors (%s)", (kind) => {
     it("sends a request without any signal or timeout", async () => {
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const response = await handle.client.sendRequest(new Request(`${originOf(server)}/echo`));
             expect(response.status).toBe(200);
@@ -52,7 +52,7 @@ describe.for(CLIENT_KINDS)("timeouts, aborts, and errors (%s)", (kind) => {
     });
 
     it("rejects when a pre-aborted signal is passed", async () => {
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const controller = new AbortController();
             controller.abort();
@@ -67,7 +67,7 @@ describe.for(CLIENT_KINDS)("timeouts, aborts, and errors (%s)", (kind) => {
     });
 
     it("rejects when the signal is aborted after the request starts", async () => {
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const controller = new AbortController();
             setTimeout(() => controller.abort(), 50);
@@ -82,7 +82,7 @@ describe.for(CLIENT_KINDS)("timeouts, aborts, and errors (%s)", (kind) => {
     });
 
     it("rejects when timeoutMillis elapses", async () => {
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             await expect(
                 handle.client.sendRequest(new Request(`${originOf(server)}/slow?ms=1000`), {
@@ -95,7 +95,7 @@ describe.for(CLIENT_KINDS)("timeouts, aborts, and errors (%s)", (kind) => {
     });
 
     it("rejects with a connection error when the origin refuses the connection", async () => {
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             await expect(
                 handle.client.sendRequest(new Request(`http://127.0.0.1:${deadPort}/echo`)),
@@ -120,6 +120,11 @@ describe.for(CLIENT_KINDS)("crawler-level error surfacing (%s)", (kind) => {
         });
         const crawler = new CheerioCrawler({
             configuration: freshCrawlerConfiguration(),
+            // @ts-expect-error — crawlee 4.0.0-rc.2's own Session class is not
+            // assignable to its own ISessionPool.getSession() return type under
+            // exactOptionalPropertyTypes (Session.get proxyInfo(): ProxyInfo |
+            // undefined vs ISession.proxyInfo?: ProxyInfo). crawlee's declaration
+            // bug, not ours; SessionPool literally `implements ISessionPool`.
             sessionPool: isolatedSessionPool(),
             requestManager,
             httpClient: client,

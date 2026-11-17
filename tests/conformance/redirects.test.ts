@@ -43,7 +43,7 @@ async function redirectedEcho(
     kind: ClientKind,
     request: Request,
 ): Promise<{ status: number; echo: EchoBody }> {
-    const handle = clientFor(kind, server);
+    const handle = clientFor(kind);
     try {
         const response = await handle.client.sendRequest(request);
         return { status: response.status, echo: await readJsonBody(response) };
@@ -117,9 +117,9 @@ describe.for(CLIENT_KINDS)("redirect semantics (%s)", (kind) => {
                 },
             }),
         );
-        expect(echo.headers.authorization).toBeUndefined();
+        expect(echo.headers["authorization"]).toBeUndefined();
         expect(echo.headers["proxy-authorization"]).toBeUndefined();
-        expect(echo.headers.cookie).toBeUndefined();
+        expect(echo.headers["cookie"]).toBeUndefined();
     });
 
     // Scenario mirrors "keeps credential headers on a same-origin redirect".
@@ -133,8 +133,8 @@ describe.for(CLIENT_KINDS)("redirect semantics (%s)", (kind) => {
                 },
             }),
         );
-        expect(echo.headers.authorization).toBe("Bearer kept");
-        expect(echo.headers.cookie).toBe("token=kept");
+        expect(echo.headers["authorization"]).toBe("Bearer kept");
+        expect(echo.headers["cookie"]).toBe("token=kept");
     });
 
     it("follows a multi-hop redirect chain to the final hop", async () => {

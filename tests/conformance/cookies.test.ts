@@ -34,13 +34,13 @@ describe.for(CLIENT_KINDS)("cookie interchange (%s)", (kind) => {
     it("sends the jar's cookies on the request", async () => {
         const jar = new CookieJar();
         await jar.setCookie("jar_only=value", `${originOf(server)}/echo`);
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const response = await handle.client.sendRequest(new Request(`${originOf(server)}/echo`), {
                 cookieJar: jar as unknown as import("@crawlee/types").CookieJar,
             });
             const echo = await readJsonBody(response);
-            expect(echo.headers.cookie).toBe("jar_only=value");
+            expect(echo.headers["cookie"]).toBe("jar_only=value");
         } finally {
             await handle.close();
         }
@@ -48,7 +48,7 @@ describe.for(CLIENT_KINDS)("cookie interchange (%s)", (kind) => {
 
     it("lands every cookie of a multi Set-Cookie response in the jar (getSetCookie path)", async () => {
         const jar = new CookieJar();
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const response = await handle.client.sendRequest(new Request(`${originOf(server)}/set-cookie`), {
                 cookieJar: jar as unknown as import("@crawlee/types").CookieJar,
@@ -73,7 +73,7 @@ describe.for(CLIENT_KINDS)("cookie interchange (%s)", (kind) => {
         const jar = new CookieJar();
         await jar.setCookie("jar_cookie=from_jar", `${originOf(server)}/echo`);
         await jar.setCookie("shared=from_jar", `${originOf(server)}/echo`);
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const response = await handle.client.sendRequest(
                 new Request(`${originOf(server)}/echo`, {
@@ -82,10 +82,10 @@ describe.for(CLIENT_KINDS)("cookie interchange (%s)", (kind) => {
                 { cookieJar: jar as unknown as import("@crawlee/types").CookieJar },
             );
             const echo = await readJsonBody(response);
-            expect(echo.headers.cookie).toContain("header_only=explicit");
-            expect(echo.headers.cookie).toContain("jar_cookie=from_jar");
-            expect(echo.headers.cookie).toContain("shared=from_header");
-            expect(echo.headers.cookie).not.toContain("shared=from_jar");
+            expect(echo.headers["cookie"]).toContain("header_only=explicit");
+            expect(echo.headers["cookie"]).toContain("jar_cookie=from_jar");
+            expect(echo.headers["cookie"]).toContain("shared=from_header");
+            expect(echo.headers["cookie"]).not.toContain("shared=from_jar");
         } finally {
             await handle.close();
         }
@@ -97,15 +97,15 @@ describe.for(CLIENT_KINDS)("cookie interchange (%s)", (kind) => {
     it("applies cookies set by a redirect hop to the following hop", async () => {
         const jar = new CookieJar();
         await jar.setCookie("session=old", `${originOf(server)}/echo`);
-        const handle = clientFor(kind, server);
+        const handle = clientFor(kind);
         try {
             const response = await handle.client.sendRequest(
                 new Request(`${originOf(server)}/redirect-set-cookie`),
                 { cookieJar: jar as unknown as import("@crawlee/types").CookieJar },
             );
             const echo = await readJsonBody(response);
-            expect(echo.headers.cookie).toContain("session=new");
-            expect(echo.headers.cookie).not.toContain("session=old");
+            expect(echo.headers["cookie"]).toContain("session=new");
+            expect(echo.headers["cookie"]).not.toContain("session=old");
         } finally {
             await handle.close();
         }
@@ -120,7 +120,7 @@ describe("cookie interchange — cross-client equivalence", () => {
         };
         for (const kind of CLIENT_KINDS) {
             const jar = new CookieJar();
-            const handle = clientFor(kind, server);
+            const handle = clientFor(kind);
             try {
                 await handle.client.sendRequest(new Request(`${originOf(server)}/set-cookie`), {
                     cookieJar: jar as unknown as import("@crawlee/types").CookieJar,
