@@ -1,6 +1,6 @@
 {
     "name": "@browsercore/crawlee",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "description": "Crawlee HTTP client backed by browsersmith — browser-identical TLS/HTTP2 fingerprints, proxy rotation, zero native deps.",
     "keywords": [
         "crawlee",
@@ -51,16 +51,16 @@
         "lint": "oxlint --type-aware src/"
     },
     "dependencies": {
-        "@browsercore/fetch": "^0.2.22",
-        "@browsercore/transport": "^0.2.8",
-        "browsersmith": "^0.0.16"
+        "@browsercore/fetch": "^0.2.25",
+        "@browsercore/transport": "^0.2.10",
+        "browsersmith": "^0.0.20"
     },
     "peerDependencies": {
         "@crawlee/http-client": ">=4.0.0-rc.0 <5"
     },
     "devDependencies": {
         "@browsercore/dev": "0.2.0",
-        "@browsercore/http2": "0.2.12",
+        "@browsercore/http2": "0.2.14",
         "@browsercore/testing": "0.2.9",
         "@crawlee/http-client": "4.0.0-rc.2",
         "@types/node": "^26.1.2",
@@ -75,5 +75,8 @@
     },
     "engines": {
         "node": ">=26.0.0"
+    },
+    "overrides": {
+        "@browsercore/cookies": "^0.2.3"
     }
 }

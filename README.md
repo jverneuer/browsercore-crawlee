@@ -132,11 +132,11 @@ Local `node:http` fixture servers drive a **real `CheerioCrawler`** and direct `
 | Connection-refused → crawler-classified retryable error + clean final failure | yes |
 | HEAD requests | yes |
 | Keep-alive reuse across sequential requests | yes |
-| gzip/br round-trip | undici yes; browsersmith request-side asserted, response-side real-path only (see note) |
+| gzip/br round-trip | yes — both directions, through the transport seam (see note) |
 | `proxyUrl` mapping — `http` CONNECT + `socks5h` through local in-process proxies; bad scheme → typed `ProxyConfigError` | N/A — `FetchHttpClient` documents itself as not supporting proxying |
 | End-to-end `CheerioCrawler` redirect chains + session-cookie carry | yes |
 
-> **gzip note:** the offline fixtures reach browsersmith through its `transportFactory` seam, whose HTTP/1.1 branch does not thread a decompression provider (`establishHttp1OverTransport`, @browsercore/fetch 0.2.21) — so response-side decompression for browsersmith is proven on the real TLS path (which does thread it) by the live integration suite against real gzip-served pages. The request side (browser `accept-encoding` profile) is asserted offline.
+> **gzip note:** the transport seam's HTTP/1.1 branch threads the platform decompression provider since @browsercore/fetch 0.2.22 (fetch#76) — before that, a compressed response through the seam failed with a typed `ContentEncodingError`. The offline gzip/br twins above therefore prove response-side decompression for browsersmith on the same fixtures as the stock client, and the live integration suite keeps proving it on the real TLS path.
 
 Run: `npm test` (fully offline, deterministic — the crawler scenarios use in-memory storage and isolated session pools).
 
@@ -157,6 +157,10 @@ npm run canary
 
 How to read it: the browsersmith column must show the golden browser values (that is the anti-blocking property, live). The undici column will show a stock-runtime JA4 (different cipher/extension set) — that contrast is the point: same endpoint, same moment, browser-identical versus runtime-default.
 
+## Troubleshooting
+
+- **Timeouts are testable without waiting.** Since the platform-v2 stack, `@browsercore/fetch` resolves every timer from a canonical `Clock` (`options.clock ?? platform.time ?? systemClock`, defined in [`@browsercore/contracts`](https://github.com/jverneuer/browsercore-contracts)). If you build your own client on the underlying stack — or extend the `transportFactory` seam — inject a manual-advance `Clock` and your `timeoutMillis` / idle-eviction paths fire at exact virtual instants with zero real timers (see fetch's `tests/deterministic-clock.test.ts`). The crawlee-level conformance twins drive timeouts through real timers against local fixtures, so no clock injection is needed to use this package as-is.
+
 ## Package dependencies
 
 ```
@@ -168,6 +172,10 @@ How to read it: the browsersmith column must show the golden browser values (tha
 ```
 
 Zero native dependencies — the TLS stack is pure TypeScript over Node's crypto primitives.
+
+Floors track the **platform-v2 stack** (canonical `Clock`, optional `Platform`/engine injection from `@browsercore/contracts`, assembled by [browsersmith](https://github.com/jverneuer/browsersmith)): `browsersmith ^0.0.20`, `@browsercore/fetch ^0.2.25`, `@browsercore/transport ^0.2.10`.
+
+> **Dev-tree note:** browsersmith 0.0.20 imports `serializeJar` (added in `@browsercore/cookies` 0.2.2) but declares only `^0.2.0`, so a dev tree that also pins an older exact cookies (this repo's `@browsercore/testing` devDependency does) can shadow it with a 0.2.0/0.2.1 hoist and crash browsersmith at import. This repo's `overrides` pins `@browsercore/cookies` to `^0.2.3` for its own install; the override is install-time only and never affects consumers.
 
 ## Position in BrowserCore
 
