@@ -56,6 +56,21 @@ jobs:
           console.log('Coverage OK — statements '+s+'%, branches '+b+'%, functions '+f+'%, lines '+l+'% >= '+min+'%');
           "
 
+      # Deployment gate for the anti-blocking property: the offline parity
+      # suite already ran inside `npm test`; this step asserts the SAME
+      # goldens against the live tls.peet.ws oracle — exactly ONE request
+      # per CI run (the retry only fires on failure, still one more at most,
+      # keeping us well inside polite-usage bounds). A failure here means
+      # the wire fingerprint is no longer browser-identical and blocks the
+      # merge. The blocking canary is deliberately NOT in CI (manual /
+      # scheduled: `npm run canary`).
+      - name: Live fingerprint parity gate (one tls.peet.ws request, one retry)
+        env:
+          FINGERPRINT_LIVE: "1"
+        run: |
+          npx vitest run tests/fingerprint-parity.live.test.ts \
+            || (sleep 20 && npx vitest run tests/fingerprint-parity.live.test.ts)
+
       - name: Generate COVERAGE.md + badge
         run: |
           npx coverage-md 2>/dev/null || true
