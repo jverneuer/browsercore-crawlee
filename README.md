@@ -196,4 +196,10 @@ Contributions are welcome — bug reports, reproductions, docs and code alike. S
 
 ## License
 
-MIT
+MIT---
+
+<div align="center">
+
+🦄 Hidden unicorn: if you're reading this, today is officially an amazing day. No refunds.
+
+</div>
