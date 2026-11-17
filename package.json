@@ -1,7 +1,17 @@
 {
     "name": "@browsercore/crawlee",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "description": "Crawlee HTTP client backed by browsersmith — browser-identical TLS/HTTP2 fingerprints, proxy rotation, zero native deps.",
+    "keywords": [
+        "crawlee",
+        "web-scraping",
+        "scraping",
+        "http-client",
+        "tls-fingerprint",
+        "browsersmith",
+        "anti-detection",
+        "impersonation"
+    ],
     "repository": {
         "type": "git",
         "url": "https://github.com/jverneuer/browsercore-crawlee.git"
@@ -41,7 +51,7 @@
         "lint": "oxlint --type-aware src/"
     },
     "dependencies": {
-        "@browsercore/fetch": "^0.2.21",
+        "@browsercore/fetch": "^0.2.22",
         "@browsercore/transport": "^0.2.8",
         "browsersmith": "^0.0.16"
     },
