@@ -46,39 +46,32 @@ describe.for(CLIENT_KINDS)("payload handling (%s)", (kind) => {
         }
     });
 
-    // Response-side decompression for browsersmith runs on the REAL TLS path
-    // only: @browsercore/fetch 0.2.21's `establishHttp1OverTransport` (the
-    // branch the transport seam takes) does not thread a decompression
-    // provider, so a compressed response through the seam fails with a typed
-    // ContentEncodingError. The real path threads the platform compression
-    // provider (`establishConnection`) and is proven live by
-    // tests/integration.live.test.ts parsing real gzip-served pages. The
-    // stock-client twins below keep the offline round-trip covered.
-    if (kind === "browsersmith") {
-        it.todo("round-trips gzip/br responses (real-path only — transport seam omits the decompression provider)");
-    } else {
-        it("round-trips a gzip content-encoding response as the decompressed body", async () => {
-            const handle = clientFor(kind, server);
-            try {
-                const response = await handle.client.sendRequest(new Request(`${originOf(server)}/compressed?enc=gzip`));
-                expect(response.status).toBe(200);
-                expect(await response.text()).toBe("compressed fixture body — round-trips through content-encoding");
-            } finally {
-                await handle.close();
-            }
-        });
+    // Both kinds take these through their full response path: for browsersmith
+    // that includes the transport-seam h1 dial, which threads the platform
+    // decompression provider since @browsercore/fetch 0.2.22 (fetch#76) —
+    // before that, a compressed response through the seam failed with a typed
+    // ContentEncodingError instead of yielding the decoded body.
+    it("round-trips a gzip content-encoding response as the decompressed body", async () => {
+        const handle = clientFor(kind, server);
+        try {
+            const response = await handle.client.sendRequest(new Request(`${originOf(server)}/compressed?enc=gzip`));
+            expect(response.status).toBe(200);
+            expect(await response.text()).toBe("compressed fixture body — round-trips through content-encoding");
+        } finally {
+            await handle.close();
+        }
+    });
 
-        it("round-trips a brotli content-encoding response as the decompressed body", async () => {
-            const handle = clientFor(kind, server);
-            try {
-                const response = await handle.client.sendRequest(new Request(`${originOf(server)}/compressed?enc=br`));
-                expect(response.status).toBe(200);
-                expect(await response.text()).toBe("compressed fixture body — round-trips through content-encoding");
-            } finally {
-                await handle.close();
-            }
-        });
-    }
+    it("round-trips a brotli content-encoding response as the decompressed body", async () => {
+        const handle = clientFor(kind, server);
+        try {
+            const response = await handle.client.sendRequest(new Request(`${originOf(server)}/compressed?enc=br`));
+            expect(response.status).toBe(200);
+            expect(await response.text()).toBe("compressed fixture body — round-trips through content-encoding");
+        } finally {
+            await handle.close();
+        }
+    });
 
     it("advertises an accept-encoding that covers gzip on content-bearing requests", async () => {
         const handle = clientFor(kind, server);
