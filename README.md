@@ -3,6 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@browsercore/crawlee)](https://www.npmjs.com/package/@browsercore/crawlee)
 [![coverage](https://img.shields.io/endpoint?url=https://jverneuer.github.io/browsercore-crawlee/badge.json)](https://jverneuer.github.io/browsercore-crawlee/COVERAGE.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/jverneuer/browsercore-crawlee/ci.yml?label=ci)](https://github.com/jverneuer/browsercore-crawlee/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/@browsercore/crawlee.svg)](LICENSE)
 
 `@browsercore/crawlee` is a Crawlee HTTP client (`BrowsersmithHttpClient`) that routes every crawler request through browsersmith's browser-identical TLS + HTTP/2 fingerprint stack — the JA3/JA4 ClientHello, HTTP/2 SETTINGS frame order, and header casing a real Chrome (or Firefox) would emit — with HTTP CONNECT and SOCKS5 proxying and **zero native dependencies**. It plugs into any `@crawlee/http-client`-based crawler (`CheerioCrawler`, `HttpCrawler`, `BasicCrawler`, …) via the standard `httpClient` option.
 
